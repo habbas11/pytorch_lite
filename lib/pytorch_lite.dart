@@ -77,11 +77,9 @@ class PytorchLite {
       {String? labelPath,
       ObjectDetectionModelType objectDetectionModelType =
           ObjectDetectionModelType.yolov5}) async {
-    String absPathModelPath = await _getAbsolutePath(path);
 
-    int index = await PytorchFfi.loadModel(absPathModelPath);
-    // int index = await ModelApi().loadModel(absPathModelPath, numberOfClasses,
-    //     imageWidth, imageHeight, objectDetectionModelType);
+    int index = await PytorchFfi.loadModel(path);
+
     List<String> labels = [];
     if (labelPath != null) {
       if (labelPath.endsWith(".txt")) {
@@ -108,28 +106,20 @@ Future<List<String>> _getLabelsCsv(String labelPath) async {
   return labelsData.split(",");
 }
 
+Future<String?> get _localPath async {
+  final directory = await getDownloadsDirectory();
+
+  return directory?.path;
+}
+
 ///get labels in txt format
 ///each line is a label
 Future<List<String>> _getLabelsTxt(String labelPath) async {
-  String labelsData = await rootBundle.loadString(labelPath);
-  return labelsData.split("\n");
+  final file = File(labelPath);
+  final contents = await file.readAsString();
+  return contents.split("\n");
 }
 
-/*
-class CustomModel {
-  final int _index;
-
-  CustomModel(this._index);
-
-  ///predicts abstract number input
-  Future<List?> getPrediction(
-      List<double> input, List<int> shape, DType dtype) async {
-    final List? prediction = await ModelApi().getPredictionCustom(
-        _index, input, shape, dtype.toString().split(".").last);
-    return prediction;
-  }
-}
-*/
 
 class ClassificationModel {
   final int _index;
