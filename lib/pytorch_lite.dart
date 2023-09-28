@@ -27,65 +27,18 @@ const List<double> noStdRgb = [1, 1, 1];
 // and also add a method for running on camera image to avoid making it hard on people
 
 class PytorchLite {
-  static Future<String> _getAbsolutePath(String path) async {
-    Directory dir = await getApplicationDocumentsDirectory();
-    String dirPath = join(dir.path, path);
-    ByteData data = await rootBundle.load(path);
-    //copy asset to documents directory
-    List<int> bytes =
-        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-
-    //create non existant directories
-    List split = path.split("/");
-    String nextDir = "";
-    for (int i = 0; i < split.length; i++) {
-      if (i != split.length - 1) {
-        nextDir += split[i];
-        await Directory(join(dir.path, nextDir)).create();
-        nextDir += "/";
-      }
-    }
-    await File(dirPath).writeAsBytes(bytes);
-
-    return dirPath;
-  }
-
-  ///Sets pytorch model path and returns Model
-  static Future<ClassificationModel> loadClassificationModel(
-      String path, int imageWidth, int imageHeight, int numberOfClasses,
-      {String? labelPath}) async {
-    String absPathModelPath = await _getAbsolutePath(path);
-
-    int index = await PytorchFfi.loadModel(absPathModelPath);
-
-    List<String> labels = [];
-    if (labelPath != null) {
-      if (labelPath.endsWith(".txt")) {
-        labels = await _getLabelsTxt(labelPath);
-      } else {
-        labels = await _getLabelsCsv(labelPath);
-      }
-    }
-
-    return ClassificationModel(
-        index, labels, imageWidth, imageHeight, numberOfClasses);
-  }
-
   ///Sets pytorch object detection model (path and lables) and returns Model
   static Future<ModelObjectDetection> loadObjectDetectionModel(
       String path, int numberOfClasses, int imageWidth, int imageHeight,
       {String? labelPath,
       ObjectDetectionModelType objectDetectionModelType =
           ObjectDetectionModelType.yolov5}) async {
-
     int index = await PytorchFfi.loadModel(path);
 
     List<String> labels = [];
     if (labelPath != null) {
       if (labelPath.endsWith(".txt")) {
         labels = await _getLabelsTxt(labelPath);
-      } else {
-        labels = await _getLabelsCsv(labelPath);
       }
     }
     return ModelObjectDetection(
@@ -99,183 +52,12 @@ class PytorchLite {
   }
 }
 
-///get labels in csv format
-///labels are separated by commas
-Future<List<String>> _getLabelsCsv(String labelPath) async {
-  String labelsData = await rootBundle.loadString(labelPath);
-  return labelsData.split(",");
-}
-
-Future<String?> get _localPath async {
-  final directory = await getDownloadsDirectory();
-
-  return directory?.path;
-}
-
 ///get labels in txt format
 ///each line is a label
 Future<List<String>> _getLabelsTxt(String labelPath) async {
   final file = File(labelPath);
   final contents = await file.readAsString();
   return contents.split("\n");
-}
-
-
-class ClassificationModel {
-  final int _index;
-  final List<String> labels;
-  final int imageWidth;
-  final int imageHeight;
-  final int numberOfClasses;
-  ClassificationModel(this._index, this.labels, this.imageWidth,
-      this.imageHeight, this.numberOfClasses);
-
-  int softMax(List<double?> prediction) {
-    double maxScore = double.negativeInfinity;
-    int maxScoreIndex = -1;
-    for (int i = 0; i < prediction.length; i++) {
-      if (prediction[i]! > maxScore) {
-        maxScore = prediction[i]!;
-        maxScoreIndex = i;
-      }
-    }
-    return maxScoreIndex;
-  }
-
-  List<double> getProbabilities(
-    List<double> prediction,
-  ) {
-    List<double> predictionProbabilities = [];
-    //Getting sum of exp
-    double? sumExp;
-    for (var element in prediction) {
-      if (sumExp == null) {
-        sumExp = exp(element);
-      } else {
-        sumExp = sumExp + exp(element);
-      }
-    }
-    for (var element in prediction) {
-      predictionProbabilities.add(exp(element) / sumExp!);
-    }
-    return predictionProbabilities;
-  }
-
-  ///predicts image but returns the raw net output
-  Future<List<double>> getImagePredictionList(Uint8List imageAsBytes,
-      {List<double> mean = torchVisionNormMeanRGB,
-      List<double> std = torchVisionNormSTDRGB}) async {
-    // Assert mean std
-    assert(mean.length == 3, "Mean should have size of 3");
-    assert(std.length == 3, "STD should have size of 3");
-
-    return await PytorchFfi.imageModelInference(_index, imageAsBytes,
-        imageHeight, imageWidth, mean, std, false, numberOfClasses);
-  }
-
-  ///predicts image and returns the supposed label belonging to it
-  Future<String> getImagePrediction(Uint8List imageAsBytes,
-      {List<double> mean = torchVisionNormMeanRGB,
-      List<double> std = torchVisionNormSTDRGB}) async {
-    // Assert mean std
-    assert(mean.length == 3, "mean should have size of 3");
-    assert(std.length == 3, "std should have size of 3");
-
-    final List<double?> prediction =
-        await getImagePredictionList(imageAsBytes, mean: mean, std: std);
-
-    int maxScoreIndex = softMax(prediction);
-    return labels[maxScoreIndex];
-  }
-
-  ///predicts image but returns the output as probabilities
-  ///[image] takes the File of the image
-  Future<List<double>?> getImagePredictionListProbabilities(
-      Uint8List imageAsBytes,
-      {List<double> mean = torchVisionNormMeanRGB,
-      List<double> std = torchVisionNormSTDRGB}) async {
-    // Assert mean std
-    assert(mean.length == 3, "Mean should have size of 3");
-    assert(std.length == 3, "STD should have size of 3");
-    List<double> prediction =
-        await getImagePredictionList(imageAsBytes, mean: mean, std: std);
-
-    //Getting sum of exp
-    return getProbabilities(prediction);
-  }
-
-  ///predicts image but returns the raw net output
-  Future<List<double>> getCameraImagePredictionList(
-      CameraImage cameraImage, int rotation,
-      {List<double> mean = torchVisionNormMeanRGB,
-      List<double> std = torchVisionNormSTDRGB}) async {
-    // Assert mean std
-    assert(mean.length == 3, "Mean should have size of 3");
-    assert(std.length == 3, "STD should have size of 3");
-
-    // On Android the image format is YUV and we get a buffer per channel,
-    // in iOS the format is BGRA and we get a single buffer for all channels.
-    // So the yBuffer variable on Android will be just the Y channel but on iOS it will be
-    // the entire image
-    var planes = cameraImage.planes;
-    var yBuffer = planes[0].bytes;
-
-    Uint8List? uBuffer;
-    Uint8List? vBuffer;
-
-    if (Platform.isAndroid) {
-      uBuffer = planes[1].bytes;
-      vBuffer = planes[2].bytes;
-    }
-
-    return await PytorchFfi.cameraImageModelInference(
-        _index,
-        yBuffer,
-        uBuffer,
-        vBuffer,
-        rotation,
-        imageHeight,
-        imageWidth,
-        cameraImage.height,
-        cameraImage.width,
-        mean,
-        std,
-        false,
-        numberOfClasses);
-  }
-
-  ///predicts image and returns the supposed label belonging to it
-  Future<String> getCameraImagePrediction(CameraImage cameraImage, int rotation,
-      {List<double> mean = torchVisionNormMeanRGB,
-      List<double> std = torchVisionNormSTDRGB}) async {
-    // Assert mean std
-    assert(mean.length == 3, "mean should have size of 3");
-    assert(std.length == 3, "std should have size of 3");
-
-    final List<double?> prediction = await getCameraImagePredictionList(
-        cameraImage, rotation,
-        mean: mean, std: std);
-
-    int maxScoreIndex = softMax(prediction);
-    return labels[maxScoreIndex];
-  }
-
-  ///predicts image but returns the output as probabilities
-  ///[image] takes the File of the image
-  Future<List<double>?> getCameraPredictionListProbabilities(
-      CameraImage cameraImage, int rotation,
-      {List<double> mean = torchVisionNormMeanRGB,
-      List<double> std = torchVisionNormSTDRGB}) async {
-    // Assert mean std
-    assert(mean.length == 3, "Mean should have size of 3");
-    assert(std.length == 3, "STD should have size of 3");
-    final List<double> prediction = await getCameraImagePredictionList(
-        cameraImage, rotation,
-        mean: mean, std: std);
-
-    //Getting sum of exp
-    return getProbabilities(prediction);
-  }
 }
 
 class ModelObjectDetection {
@@ -285,6 +67,7 @@ class ModelObjectDetection {
   final List<String> labels;
   final ObjectDetectionModelType modelType;
   final PostProcessorObjectDetection postProcessorObjectDetection;
+
   ModelObjectDetection(this._index, this.imageWidth, this.imageHeight,
       this.labels, this.postProcessorObjectDetection,
       {this.modelType = ObjectDetectionModelType.yolov5});
